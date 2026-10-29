@@ -4,6 +4,7 @@ Lancer :  streamlit run app.py
 """
 import streamlit as st
 
+import ai
 import content
 import db
 
@@ -119,6 +120,45 @@ def page_progres():
         st.write(f"**{nom}** : {s['score']} / {s['total']} ({s['created_at'][:10]})")
 
 
+def page_chat(mode, titre, intro):
+    """Discussion avec l'IA (mode 'assistant' ou 'expose')."""
+    user = st.session_state.user
+    st.header(titre)
+    st.caption(intro)
+
+    cle = f"chat_{mode}"
+    historique = st.session_state.setdefault(cle, [])
+    if historique and st.button("Nouvelle conversation", key=f"reset_{mode}"):
+        st.session_state[cle] = []
+        st.rerun()
+
+    for m in historique:
+        with st.chat_message(m["role"]):
+            st.write(m["content"])
+
+    question = st.chat_input("Écris ta question ici...")
+    if not question:
+        return
+
+    if db.count_ai_today(user["id"]) >= ai.daily_limit():
+        st.warning("Tu as atteint la limite de questions pour aujourd'hui. Reviens demain !")
+        return
+
+    historique.append({"role": "user", "content": question})
+    with st.chat_message("user"):
+        st.write(question)
+    with st.chat_message("assistant"):
+        with st.spinner("Je réfléchis..."):
+            reponse, erreur = ai.ask(mode, historique, NOMS_FILIERES.get(user.get("filiere"), ""))
+        if erreur:
+            st.error(erreur)
+            historique.pop()
+        else:
+            st.write(reponse)
+            historique.append({"role": "assistant", "content": reponse})
+            db.add_ai_usage(user["id"])
+
+
 def page_bientot(titre, texte):
     st.header(titre)
     st.info(texte)
@@ -146,9 +186,9 @@ def main():
     elif page == "Quiz":
         page_quiz()
     elif page == "Assistant IA":
-        page_bientot("🤖 Assistant IA", "Bientôt disponible (étape suivante).")
+        page_chat("assistant", "🤖 Assistant IA", "Pose une question sur ton cours ou ton métier.")
     elif page == "Exposés":
-        page_bientot("🗂️ Aide aux exposés", "Bientôt disponible.")
+        page_chat("expose", "🗂️ Aide aux exposés", "Je t'aide à trouver ton sujet et à construire ton plan.")
     elif page == "Orientation":
         page_bientot("🧭 Orientation", "Bientôt disponible.")
     else:
